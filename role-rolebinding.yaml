@@ -1,0 +1,25 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name:  developer-full-access
+  namespace: develop
+rules:
+- apiGroups:
+  - ""
+  verbs: ["*"]
+  resources: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name:  developer-full-access-bind
+  namespace: develop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name:  developer-full-access
+subjects:
+- kind: ServiceAccount
+  name: developer
+  namespace: develop

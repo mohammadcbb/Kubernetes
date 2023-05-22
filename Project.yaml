@@ -1,0 +1,253 @@
+#Creating Develop Namespace
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name:  develop
+...
+#Creating Serviceaccount for Develop Namespace
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: developer
+  namespace: develop
+...
+#Creating Role Base Access Control for ServiceAccount of Develop Namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name:  developer-full-access
+  namespace: develop
+rules:
+- apiGroups:
+  - ""
+  verbs: ["*"]
+  resources: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name:  developer-full-access-bind
+  namespace: develop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name:  developer-full-access
+subjects:
+- kind: ServiceAccount
+  name: developer
+  namespace: develop
+...
+#Resource Quota on Develop Namespace
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: resource-quota-develop
+  namespace: develop
+spec:
+  hard:
+    pods: "10"
+    limits.cpu: "8"
+    limits.memory: "32G"
+    services: "3"
+    fast.storageclass.storage.k8s.io/requests.storage: 100G
+...
+#Creating ConfigMap
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-develop-frontend-config
+  namespace: develop
+  labels:
+    app: nginx
+data:
+  frontend.conf: |
+    server {
+        listen       8000;
+      # listen  [::]:8000;
+        server_name  localhost;
+        location / {
+            root   /usr/share/nginx/html;
+            index  index.html index.htm;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   /usr/share/nginx/html;
+        }
+    }
+...
+#Creating Deployment for Nginx and BusyBox
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: develop
+  labels:
+    deployment: frontend
+spec:
+  replicas: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name:  web
+          containerPort:  8000
+          protocol: TCP
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50M"
+          limits:
+            cpu: "200m"
+            memory: "100M"
+        volumeMounts:
+        - mountPath: /etc/nginx/conf.d
+          name: nginx-config
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-develop-frontend-config
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - backend   
+            topologyKey: kubernetes.io/hostname
+      initContainers:
+      - name: init-busybox
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command:
+        - sleep
+        - "20"
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "20M"
+          limits:
+            cpu: "20m"
+            memory: "40M"
+...
+#Creating secret for MySQL Root Password
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-root-pass
+  namespace: develop
+data:
+  password: QWFAMTIzNDU2
+...
+#Creating MySQL Statefullset
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: develop
+  labels:
+    statefullset: backend
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  replicas: 1
+  serviceName: mysql
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: sidecar-container
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command:
+        - sleep
+        - "3600"
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "20M"
+          limits:
+            cpu: "20m"
+            memory: "40M"
+      - name: mysql
+        image: mysql
+        imagePullPolicy: IfNotPresent
+        ports:
+        - protocol: TCP
+          name: mysqlport
+          containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-root-pass
+              key: password
+        volumeMounts:
+        - mountPath: /data
+          name: data-volume
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1G"
+          limits:
+            cpu: "2"
+            memory: "2G"
+      volumes:
+      - name: data-volume
+        emptyDir:
+          sizeLimit: 1G
+...
+#Creating Service for Nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: develop
+spec:
+  selector:
+    app: frontend
+  type: NodePort
+  ports:
+  - port: 8000
+    targetPort: web
+    nodePort: 30080
+...
+#Creating MySQL Headless Service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-headless-svc
+  namespace: develop
+spec:
+  clusterIP: None
+  selector:
+    app: backend
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: mysqlport

@@ -1,0 +1,61 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: develop
+  labels:
+    statefullset: backend
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  replicas: 1
+  serviceName: mysql
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: sidecar-container
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command:
+        - sleep
+        - "3600"
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "20M"
+          limits:
+            cpu: "20m"
+            memory: "40M"
+      - name: mysql
+        image: mysql
+        imagePullPolicy: IfNotPresent
+        ports:
+        - protocol: TCP
+          name: mysqlport
+          containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-root-pass
+              key: password
+        volumeMounts:
+        - mountPath: /data
+          name: data-volume
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1G"
+          limits:
+            cpu: "2"
+            memory: "2G"
+      volumes:
+      - name: data-volume
+        emptyDir:
+          sizeLimit: "1G"
+...
